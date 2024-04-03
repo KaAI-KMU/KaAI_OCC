@@ -15,7 +15,7 @@ from .ray_metrics import main as ray_based_miou
 from .ray_metrics import process_one_sample, generate_lidar_rays
 from torch.utils.data import DataLoader
 from nuscenes.nuscenes import NuScenes
-from ....tools.ray_iou.ego_pose_extractor import EgoPoseDataset
+from .ego_pose_extractor import EgoPoseDataset
 
 
 @DATASETS.register_module()
