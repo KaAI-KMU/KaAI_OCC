@@ -193,7 +193,17 @@ class NuSceneOcc(NuScenesDataset):
         result_dict = {}
 
         if 'LightwheelOcc' in self.version:
-            ego_pose_dataset = EgoPoseDataset(self.data_infos, dataset_type='lightwheelocc')
+            # lightwheelocc is 10Hz, downsample to 1/5
+            if self.load_interval == 5:
+                data_infos = self.data_infos
+            elif self.load_interval == 1:
+                print('[WARNING] Please set `load_interval` to 5 in for LightwheelOcc test submission!')
+                print('[WARNING] Current format_results will continue!')
+                data_infos = self.data_infos[::5]
+            else:
+                raise ValueError('Please set `load_interval` to 5 in for LightwheelOcc test submission!')
+
+            ego_pose_dataset = EgoPoseDataset(data_infos, dataset_type='lightwheelocc')
         else:
             ego_pose_dataset = EgoPoseDataset(self.data_infos, dataset_type='openocc_v2')
 
