@@ -236,15 +236,13 @@ def main(args):
 
         pred_filepath = os.path.join(args.pred_root, sample_token + '.npz')
         pred_data = np.load(pred_filepath, allow_pickle=True)
-        '''sem_pred = pred_data['semantics']
-        sem_pred = np.reshape(sem_pred, [200, 200, 16])
-        sem_pred = torch.from_numpy(sem_pred)
-        flow_pred = pred_data['flow']
-        flow_pred = np.reshape(flow_pred, [200, 200, 16, 2])'''
+
         sem_pred = pred_data['pred']
         sem_pred = np.reshape(sem_pred, [200, 200, 16])
         sem_pred = torch.from_numpy(sem_pred)
-        flow_pred = np.zeros([200, 200, 16, 2], dtype=np.float32)
+
+        flow_pred = pred_data['flow']
+        flow_pred = np.reshape(flow_pred, [200, 200, 16, 2])
 
         gt_filepath = token2path[sample_token]
         gt_data = np.load(gt_filepath, allow_pickle=True)
@@ -287,7 +285,7 @@ def main(args):
     submission_pkl_pred = {
         'method': 'My prediction',
         'team': 'My team',
-        'authors': 'Me',
+        'authors': ['Me', ],
         'e-mail': 'email',
         'institution / company': "Me",
         'country / region': "Earth",
