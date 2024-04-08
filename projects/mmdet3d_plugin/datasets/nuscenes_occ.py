@@ -25,10 +25,6 @@ class NuSceneOcc(NuScenesDataset):
     This datset only add camera intrinsics and extrinsics to the results.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.data_infos = self.load_annotations(self.ann_file)
-
     def load_annotations(self, ann_file):
         """Load annotations from ann_file.
 
@@ -39,13 +35,11 @@ class NuSceneOcc(NuScenesDataset):
             list[dict]: List of annotations sorted by timestamps.
         """
         data = mmcv.load(ann_file)
-        # self.train_split=data['train_split']
-        # self.val_split=data['val_split']
         data_infos = data['infos'][::self.load_interval]
         self.metadata = data['metadata']
         self.version = self.metadata['version']
         return data_infos
-    
+
     def get_data_info(self, index):
         """Get data info according to the given index.
 
@@ -119,10 +113,6 @@ class NuSceneOcc(NuScenesDataset):
                     lidar2cam=lidar2cam_rts,
                 ))
 
-        if not self.test_mode:
-            annos = self.get_ann_info(index)
-            input_dict['ann_info'] = annos
-
         return input_dict
 
     def __getitem__(self, idx):
@@ -149,7 +139,17 @@ class NuSceneOcc(NuScenesDataset):
         print('\nStarting Evaluation...')
 
         if 'LightwheelOcc' in self.version:
-            ego_pose_dataset = EgoPoseDataset(self.data_infos, dataset_type='lightwheelocc')
+            # lightwheelocc is 10Hz, downsample to 1/5
+            if self.load_interval == 5:
+                data_infos = self.data_infos
+            elif self.load_interval == 1:
+                print('[WARNING] Please set `load_interval` to 5 in for LightwheelOcc val/test!')
+                print('[WARNING] Current format_results will continue!')
+                data_infos = self.data_infos[::5]
+            else:
+                raise ValueError('Please set `load_interval` to 5 in for LightwheelOcc val/test!')
+
+            ego_pose_dataset = EgoPoseDataset(data_infos, dataset_type='lightwheelocc')
         else:
             ego_pose_dataset = EgoPoseDataset(self.data_infos, dataset_type='openocc_v2')
 
@@ -164,7 +164,7 @@ class NuSceneOcc(NuScenesDataset):
             ego_pose_dataset,
             **data_loader_kwargs,
         )
-        
+
         sample_tokens = [info['token'] for info in self.data_infos]
 
         for i, batch in tqdm(enumerate(data_loader), ncols=50):
@@ -183,7 +183,7 @@ class NuSceneOcc(NuScenesDataset):
             flow_gts.append(gt_flow)
             occ_preds.append(occ_results[data_id]['occ_results'].cpu().numpy())
             flow_preds.append(occ_results[data_id]['flow_results'].cpu().numpy())
-        
+
         ray_based_miou(occ_preds, occ_gts, flow_preds, flow_gts, lidar_origins)
 
     def format_results(self, occ_results, submission_prefix, **kwargs):
@@ -224,10 +224,10 @@ class NuSceneOcc(NuScenesDataset):
         lidar_rays = generate_lidar_rays()
         lidar_rays = torch.from_numpy(lidar_rays)
 
-        for index, batch in tqdm(enumerate(data_loader), ncols=50):
+        for batch in tqdm(data_loader, ncols=80, desc='Formatting results'):
             token = batch[0][0]
             output_origin = batch[1]
-            
+
             data_id = sample_tokens.index(token)
 
             occ_pred = occ_results[data_id]
@@ -249,19 +249,21 @@ class NuSceneOcc(NuScenesDataset):
                 'pcd_flow': pcd_flow
             }
             result_dict.update({token: sample_dict})
-            
+
         final_submission_dict = {
-            'method': 'XXXXX (Your method name)',
-            'team': 'XXXXX (Your team name)',
-            'authors': "XXXXX (Authors)",
-            'e-mail': "XXXXX (Your email)",
-            'institution / company': "XXXXXXXXXX (Your affiliation)",
-            'country / region': "XXXXXXX (Your country/region)",
+            'method': '',
+            'team': '',
+            'authors': [''],
+            'e-mail': '',
+            'institution / company': '',
+            'country / region': '',
             'results': result_dict
         }
 
         save_path = os.path.join(submission_prefix, 'submission.gz')
-        with open(save_path, 'wb') as f:
-            f.write(gzip.compress(pickle.dumps(final_submission_dict), mtime=0))
+        print(f'\nCompress and saving results to {save_path}.')
 
-        print('\nFinished.')
+        with gzip.open(save_path, 'wb', compresslevel=9) as f:
+            pickle.dump(final_submission_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print('Finished.')

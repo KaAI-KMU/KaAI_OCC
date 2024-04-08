@@ -195,7 +195,7 @@ Below is an example of how to save the submission:
 ``` python
 import pickle, gzip
 
-with gzip.GzipFile('submission.pkl', 'wb', compresslevel=9) as f:
+with gzip.open('submission.gz', 'wb', compresslevel=9) as f:
     pickle.dump(submission, f, protocol=pickle.HIGHEST_PROTOCOL)
 ```
 
