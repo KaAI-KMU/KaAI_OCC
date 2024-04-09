@@ -19,7 +19,7 @@ Understanding the 3D surroundings including the background stuffs and foreground
 > :fire: We are organizing a sibling track in `China3DV`. Please check the [competition website](http://www.csig3dv.net/2024/competition.html) and [github repo](https://github.com/OpenDriveLab/LightwheelOcc/blob/main/docs/challenge_china3dv.md).  
 > :ice_cube: We release a 3D occupancy synthetic dataset `LightwheelOcc`, with dense **occupancy** and **depth** label and realistic sensor configuration simulating nuScenes dataset. [Check it out](https://github.com/OpenDriveLab/LightwheelOcc)!
 
-
+- **`2024/04/09`** We release the [technical report](https://arxiv.org/abs/2312.17118) of the new RayIoU metric, as well as a new occupancy method: [SparseOcc](https://github.com/MCG-NJU/SparseOcc).
 - **`2024/03/14`** We release a new version (`openocc_v2.1`) of the occupancy ground-truth, including some bug fixes regarding the occupancy flow. **Delete the old version and download the new one!** Please refer to [getting_started](docs/getting_started.md) for details.
 - **`2024/03/01`** The challenge begins.
 
@@ -78,7 +78,7 @@ where $TP_c$ , $FP_c$ , and $FN_c$ correspond to the number of true positive, fa
 
 We finally average over distance thresholds of {1, 2, 4} meters and compute the mean across classes.
 
-For more details about this metric, we will release a technical report within a few days, please stay tuned.
+For more details about this metric, please refer to the [technical report](https://arxiv.org/abs/2312.17118).
 
 ### AVE for Occupancy Flow
 
@@ -229,6 +229,19 @@ If you use the challenge dataset in your paper, please consider citing OccNet wi
     author={Chonghao Sima and Wenwen Tong and Tai Wang and Li Chen and Silei Wu and Hanming Deng and Yi Gu and Lewei Lu and Ping Luo and Dahua Lin and Hongyang Li},
     year={2023},
     eprint={2306.02851},
+    archivePrefix={arXiv},
+    primaryClass={cs.CV}
+}
+```
+
+If you use RayIoU as the evaluation metric, please consider citing the following BibTex:
+
+```bibtex
+@misc{liu2024fully,
+    title={Fully Sparse 3D Occupancy Prediction}, 
+    author={Haisong Liu and Yang Chen and Haiguang Wang and Zetong Yang and Tianyu Li and Jia Zeng and Li Chen and Hongyang Li and Limin Wang},
+    year={2024},
+    eprint={2312.17118},
     archivePrefix={arXiv},
     primaryClass={cs.CV}
 }
