@@ -38,6 +38,15 @@ class NuSceneOcc(NuScenesDataset):
         data_infos = data['infos'][::self.load_interval]
         self.metadata = data['metadata']
         self.version = self.metadata['version']
+
+        if 'LightwheelOcc' in self.version:
+            # LightwheelOcc use relative path, join with data_root
+            for info in data_infos:
+                info['occ_path'] = os.path.join(self.data_root, info['occ_path'])
+                for cam_info in info['cams'].values():
+                    cam_info['data_path'] = os.path.join(self.data_root, cam_info.pop('cam_path'))
+                    cam_info['sensor2lidar_rotation'] = Quaternion(cam_info['sensor2lidar_rotation']).rotation_matrix
+
         return data_infos
 
     def get_data_info(self, index):
@@ -69,11 +78,6 @@ class NuSceneOcc(NuScenesDataset):
             ego2global_rotation=info['ego2global_rotation'],
             timestamp=info['timestamp'] / 1e6,
         )
-        if 'occ_path' in info:
-            if 'LightwheelOcc' in self.version:
-                input_dict['occ_path'] = os.path.join(self.data_root, info['occ_path'])
-            else:
-                input_dict['occ_path'] = info['occ_path']
 
         lidar2ego_rotation = info['lidar2ego_rotation']
         lidar2ego_translation = info['lidar2ego_translation']
@@ -86,16 +90,9 @@ class NuSceneOcc(NuScenesDataset):
             lidar2cam_rts = []
             cam_intrinsics = []
             for cam_type, cam_info in info['cams'].items():
-                if 'LightwheelOcc' in self.version:
-                    image_paths.append(os.path.join(self.data_root, cam_info['cam_path']))
-                else:
-                    image_paths.append(cam_info['data_path'])
+                image_paths.append(cam_info['data_path'])
                 # obtain lidar to image transformation matrix
-                if 'LightwheelOcc' in self.version:
-                    lidar2cam_r = np.linalg.inv(Quaternion(cam_info['sensor2lidar_rotation']).rotation_matrix)
-                else:
-                    lidar2cam_r = np.linalg.inv(cam_info['sensor2lidar_rotation'])
-
+                lidar2cam_r = np.linalg.inv(cam_info['sensor2lidar_rotation'])
                 lidar2cam_t = cam_info[
                                   'sensor2lidar_translation'] @ lidar2cam_r.T
                 lidar2cam_rt = np.eye(4)
@@ -116,6 +113,9 @@ class NuSceneOcc(NuScenesDataset):
                     cam_intrinsic=cam_intrinsics,
                     lidar2cam=lidar2cam_rts,
                 ))
+
+        if not self.test_mode:
+            input_dict['occ_path'] = info.get('occ_path', None)
 
         return input_dict
 
