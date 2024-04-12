@@ -70,7 +70,11 @@ class NuSceneOcc(NuScenesDataset):
             timestamp=info['timestamp'] / 1e6,
         )
         if 'occ_path' in info:
-            input_dict['occ_path'] = info['occ_path']
+            if 'LightwheelOcc' in self.version:
+                input_dict['occ_path'] = os.path.join(self.data_root, info['occ_path'])
+            else:
+                input_dict['occ_path'] = info['occ_path']
+
         lidar2ego_rotation = info['lidar2ego_rotation']
         lidar2ego_translation = info['lidar2ego_translation']
         ego2lidar = transform_matrix(translation=lidar2ego_translation, rotation=Quaternion(lidar2ego_rotation),
