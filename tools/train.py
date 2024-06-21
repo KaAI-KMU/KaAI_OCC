@@ -1,33 +1,34 @@
-# ---------------------------------------------
 # Copyright (c) OpenMMLab. All rights reserved.
-# ---------------------------------------------
-#  Modified by Zhiqi Li
-# ---------------------------------------------
- 
 from __future__ import division
-
 import argparse
 import copy
-import mmcv
 import os
 import time
-import torch
 import warnings
+from os import path as osp
+
+import mmcv
+import torch
+import torch.distributed as dist
 from mmcv import Config, DictAction
 from mmcv.runner import get_dist_info, init_dist
-from os import path as osp
 
 from mmdet import __version__ as mmdet_version
 from mmdet3d import __version__ as mmdet3d_version
-#from mmdet3d.apis import train_model
-
+from mmdet3d.apis import init_random_seed, train_model
 from mmdet3d.datasets import build_dataset
 from mmdet3d.models import build_model
 from mmdet3d.utils import collect_env, get_root_logger
 from mmdet.apis import set_random_seed
 from mmseg import __version__ as mmseg_version
+from collections import OrderedDict
 
-from mmcv.utils import TORCH_VERSION, digit_version
+try:
+    # If mmdet version > 2.20.0, setup_multi_processes would be imported and
+    # used from mmdet instead of mmdet3d.
+    from mmdet.utils import setup_multi_processes
+except ImportError:
+    from mmdet3d.utils import setup_multi_processes
 
 
 def parse_args():
@@ -37,6 +38,10 @@ def parse_args():
     parser.add_argument(
         '--resume-from', help='the checkpoint file to resume from')
     parser.add_argument(
+        '--auto-resume',
+        action='store_true',
+        help='resume from the latest checkpoint automatically')
+    parser.add_argument(
         '--no-validate',
         action='store_true',
         help='whether not to evaluate the checkpoint during training')
@@ -44,15 +49,25 @@ def parse_args():
     group_gpus.add_argument(
         '--gpus',
         type=int,
-        help='number of gpus to use '
+        help='(Deprecated, please use --gpu-id) number of gpus to use '
         '(only applicable to non-distributed training)')
     group_gpus.add_argument(
         '--gpu-ids',
         type=int,
         nargs='+',
-        help='ids of gpus to use '
+        help='(Deprecated, please use --gpu-id) ids of gpus to use '
+        '(only applicable to non-distributed training)')
+    group_gpus.add_argument(
+        '--gpu-id',
+        type=int,
+        default=0,
+        help='number of gpus to use '
         '(only applicable to non-distributed training)')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
+    parser.add_argument(
+        '--diff-seed',
+        action='store_true',
+        help='Whether or not set different seeds for different ranks')
     parser.add_argument(
         '--deterministic',
         action='store_true',
@@ -105,36 +120,10 @@ def main():
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
-    # import modules from string list.
-    if cfg.get('custom_imports', None):
-        from mmcv.utils import import_modules_from_strings
-        import_modules_from_strings(**cfg['custom_imports'])
 
-    # import modules from plguin/xx, registry will be updated
-    if hasattr(cfg, 'plugin'):
-        if cfg.plugin:
-            import importlib
-            if hasattr(cfg, 'plugin_dir'):
-                plugin_dir = cfg.plugin_dir
-                _module_dir = os.path.dirname(plugin_dir)
-                _module_dir = _module_dir.split('/')
-                _module_path = _module_dir[0]
+    # set multi-process settings
+    setup_multi_processes(cfg)
 
-                for m in _module_dir[1:]:
-                    _module_path = _module_path + '.' + m
-                print(_module_path)
-                plg_lib = importlib.import_module(_module_path)
-            else:
-                # import dir is the dirpath for the config file
-                _module_dir = os.path.dirname(args.config)
-                _module_dir = _module_dir.split('/')
-                _module_path = _module_dir[0]
-                for m in _module_dir[1:]:
-                    _module_path = _module_path + '.' + m
-                print(_module_path)
-                plg_lib = importlib.import_module(_module_path)
-
-            from projects.mmdet3d_plugin.bevformer.apis.train import custom_train_model
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
@@ -147,15 +136,30 @@ def main():
         # use config filename as default work_dir if cfg.work_dir is None
         cfg.work_dir = osp.join('./work_dirs',
                                 osp.splitext(osp.basename(args.config))[0])
-    # if args.resume_from is not None:
-    if args.resume_from is not None and osp.isfile(args.resume_from):
+    if args.resume_from is not None:
         cfg.resume_from = args.resume_from
+
+    if args.auto_resume:
+        cfg.auto_resume = args.auto_resume
+        warnings.warn('`--auto-resume` is only supported when mmdet'
+                      'version >= 2.20.0 for 3D detection model or'
+                      'mmsegmentation verision >= 0.21.0 for 3D'
+                      'segmentation model')
+
+    if args.gpus is not None:
+        cfg.gpu_ids = range(1)
+        warnings.warn('`--gpus` is deprecated because we only support '
+                      'single GPU mode in non-distributed training. '
+                      'Use `gpus=1` now.')
     if args.gpu_ids is not None:
-        cfg.gpu_ids = args.gpu_ids
-    else:
-        cfg.gpu_ids = range(1) if args.gpus is None else range(args.gpus)
-    if digit_version(TORCH_VERSION) == digit_version('1.8.1') and cfg.optimizer['type'] == 'AdamW':
-        cfg.optimizer['type'] = 'AdamW2' # fix bug in Adamw
+        cfg.gpu_ids = args.gpu_ids[0:1]
+        warnings.warn('`--gpu-ids` is deprecated, please use `--gpu-id`. '
+                      'Because we only support single GPU mode in '
+                      'non-distributed training. Use the first GPU '
+                      'in `gpu_ids` now.')
+    if args.gpus is None and args.gpu_ids is None:
+        cfg.gpu_ids = [args.gpu_id]
+
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
         cfg.optimizer['lr'] = cfg.optimizer['lr'] * len(cfg.gpu_ids) / 8
@@ -163,12 +167,27 @@ def main():
     # init distributed env first, since logger depends on the dist info.
     if args.launcher == 'none':
         distributed = False
+        rank = 0
     else:
         distributed = True
         init_dist(args.launcher, **cfg.dist_params)
         # re-set gpu_ids with distributed training mode
-        _, world_size = get_dist_info()
+        rank, world_size = get_dist_info()
         cfg.gpu_ids = range(world_size)
+        gpu = rank % torch.cuda.device_count()
+        os.environ['LOCAL_RANK'] = str(gpu)
+
+    for each in cfg.log_config['hooks']:
+        if each['type'] == 'WandbLoggerHook':
+            each['init_kwargs']['name'] = args.config.split('/')[-1]
+            each['init_kwargs']['config'] = dict()
+            each['init_kwargs']['resume'] = 'allow'
+            each['init_kwargs']['config']['job_id'] = os.environ.get('HOSTNAME','None')
+
+            each['init_kwargs']['config']['link'] = dict()
+            for key in ['model', 'lr_config', 'load_from', 'fp16', 'optimizer', 'data', 'train_pipeline', 'data_config']:
+                each['init_kwargs']['config'][key] = dict(cfg._cfg_dict).get(key, 'None')
+            break
 
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
@@ -204,12 +223,13 @@ def main():
     logger.info(f'Config:\n{cfg.pretty_text}')
 
     # set random seeds
-    if args.seed is not None:
-        logger.info(f'Set random seed to {args.seed}, '
-                    f'deterministic: {args.deterministic}')
-        set_random_seed(args.seed, deterministic=args.deterministic)
-    cfg.seed = args.seed
-    meta['seed'] = args.seed
+    seed = init_random_seed(args.seed)
+    seed = seed + dist.get_rank() if args.diff_seed else seed
+    logger.info(f'Set random seed to {seed}, '
+                f'deterministic: {args.deterministic}')
+    set_random_seed(seed, deterministic=args.deterministic)
+    cfg.seed = seed
+    meta['seed'] = seed
     meta['exp_name'] = osp.basename(args.config)
 
     model = build_model(
@@ -218,6 +238,89 @@ def main():
         test_cfg=cfg.get('test_cfg'))
     model.init_weights()
 
+    sync_bn = cfg.get('sync_bn', False)
+    if distributed and sync_bn:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        print('Convert to SyncBatchNorm')
+
+    if 'freeze_lidar_components' in cfg and cfg['freeze_lidar_components'] is True:
+        logger.info(f"param need to update:")
+        for name, param in model.named_parameters():
+            if 'pts' in name and 'pts_bbox_head' not in name:
+                param.requires_grad = False
+
+        from torch import nn
+        def fix_bn(m):
+            if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.SyncBatchNorm):
+                m.track_running_stats = False
+        model.pts_voxel_layer.apply(fix_bn)
+        model.pts_voxel_encoder.apply(fix_bn)
+        model.pts_middle_encoder.apply(fix_bn)
+        # model.pts_backbone.apply(fix_bn)
+        # model.pts_neck.apply(fix_bn)
+
+
+
+    if 'freeze_depthplugin_components' in cfg and cfg['freeze_depthplugin_components'] is True:
+        from torch import nn
+        def fix_bn_16(m):
+            if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.SyncBatchNorm):
+                m.track_running_stats = False
+                # m.eval().half()
+        def fix_bn_32(m):
+            if isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.SyncBatchNorm):
+                m.track_running_stats = False
+        model.depth_plugin_net.img_backbone.apply(fix_bn_16)
+        model.depth_plugin_net.img_neck.apply(fix_bn_16)
+        model.depth_plugin_net.depth_net.apply(fix_bn_32)
+
+    if 'load_img_from' in cfg:
+        logger.info(cfg.load_img_from)
+        checkpoint= torch.load(cfg.load_img_from, map_location='cpu')
+        if 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        elif 'model' in checkpoint:
+            state_dict = checkpoint['model']
+        else:   
+            state_dict = checkpoint
+        if list(state_dict.keys())[0].startswith('module.'):
+            state_dict = {k[7:]: v for k, v in state_dict.items()}
+        ckpt = state_dict
+        new_ckpt = OrderedDict()
+        for k, v in ckpt.items():
+            # if k.startswith('bridge_head'):
+            #     new_k = 'img_'+k
+            #     new_v = v
+            # else:
+            if k.startswith('img_backbone'):
+                new_v = v
+                new_k = k
+                new_ckpt[new_k] = new_v
+        info = model.load_state_dict(new_ckpt, strict=False)
+        logger.info(info)
+     
+    
+    if 'load_lidar_from' in cfg:
+        logger.info(cfg.load_lidar_from)
+        checkpoint= torch.load(cfg.load_lidar_from, map_location='cpu')
+        if 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        elif 'model' in checkpoint:
+            state_dict = checkpoint['model']
+        else:
+            state_dict = checkpoint
+        ckpt = state_dict
+        new_ckpt = OrderedDict()
+        for k, v in ckpt.items():
+            # if k.startswith('pts_bbox_head'):
+            #    continue
+            # else:
+            new_v = v
+            new_k = k
+            new_ckpt[new_k] = new_v
+        info = model.load_state_dict(new_ckpt, strict=False)
+        logger.info(info)
+        
     logger.info(f'Model:\n{model}')
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:
@@ -245,7 +348,7 @@ def main():
             if hasattr(datasets[0], 'PALETTE') else None)
     # add an attribute for visualization convenience
     model.CLASSES = datasets[0].CLASSES
-    custom_train_model(
+    train_model(
         model,
         datasets,
         cfg,

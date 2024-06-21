@@ -1,0 +1,138 @@
+Metadata-Version: 2.1
+Name: mmdet3d
+Version: 1.0.0rc4
+Summary: OpenMMLab's next-generation platformfor general 3D object detection.
+Home-page: https://github.com/open-mmlab/mmdetection3d
+Author: MMDetection3D Contributors
+Author-email: zwwdev@gmail.com
+License: Apache License 2.0
+Keywords: computer vision,3D object detection
+Classifier: Development Status :: 4 - Beta
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: lyft_dataset_sdk
+Requires-Dist: networkx<2.3,>=2.2
+Requires-Dist: numba==0.53.0
+Requires-Dist: numpy
+Requires-Dist: nuscenes-devkit
+Requires-Dist: plyfile
+Requires-Dist: scikit-image
+Requires-Dist: tensorboard
+Requires-Dist: trimesh<2.35.40,>=2.35.39
+Provides-Extra: all
+Requires-Dist: open3d; extra == "all"
+Requires-Dist: spconv; extra == "all"
+Requires-Dist: waymo-open-dataset-tf-2-1-0==1.2.0; extra == "all"
+Requires-Dist: lyft_dataset_sdk; extra == "all"
+Requires-Dist: networkx<2.3,>=2.2; extra == "all"
+Requires-Dist: numba==0.53.0; extra == "all"
+Requires-Dist: numpy; extra == "all"
+Requires-Dist: nuscenes-devkit; extra == "all"
+Requires-Dist: plyfile; extra == "all"
+Requires-Dist: scikit-image; extra == "all"
+Requires-Dist: tensorboard; extra == "all"
+Requires-Dist: trimesh<2.35.40,>=2.35.39; extra == "all"
+Requires-Dist: asynctest; extra == "all"
+Requires-Dist: codecov; extra == "all"
+Requires-Dist: flake8; extra == "all"
+Requires-Dist: interrogate; extra == "all"
+Requires-Dist: isort; extra == "all"
+Requires-Dist: kwarray; extra == "all"
+Requires-Dist: pytest; extra == "all"
+Requires-Dist: pytest-cov; extra == "all"
+Requires-Dist: pytest-runner; extra == "all"
+Requires-Dist: ubelt; extra == "all"
+Requires-Dist: xdoctest>=0.10.0; extra == "all"
+Requires-Dist: yapf; extra == "all"
+Provides-Extra: tests
+Requires-Dist: asynctest; extra == "tests"
+Requires-Dist: codecov; extra == "tests"
+Requires-Dist: flake8; extra == "tests"
+Requires-Dist: interrogate; extra == "tests"
+Requires-Dist: isort; extra == "tests"
+Requires-Dist: kwarray; extra == "tests"
+Requires-Dist: pytest; extra == "tests"
+Requires-Dist: pytest-cov; extra == "tests"
+Requires-Dist: pytest-runner; extra == "tests"
+Requires-Dist: ubelt; extra == "tests"
+Requires-Dist: xdoctest>=0.10.0; extra == "tests"
+Requires-Dist: yapf; extra == "tests"
+Provides-Extra: build
+Provides-Extra: optional
+Requires-Dist: open3d; extra == "optional"
+Requires-Dist: spconv; extra == "optional"
+Requires-Dist: waymo-open-dataset-tf-2-1-0==1.2.0; extra == "optional"
+Provides-Extra: mim
+Requires-Dist: mmcv-full<=1.6.0,>=1.4.8; extra == "mim"
+Requires-Dist: mmdet<=3.0.0,>=2.24.0; extra == "mim"
+Requires-Dist: mmsegmentation<=1.0.0,>=0.20.0; extra == "mim"
+
+# Forward-Backward View Transformation for Vision-Centric AV Perception
+
+<p align="center">
+<img src="figs/demo_1.png" width=90% height=90%>
+</p>
+
+### [Paper (FB-BEV)](https://arxiv.org/abs/2308.02236) | [Paper (FB-OCC)](https://arxiv.org/abs/2307.01492) | [Intro Video](https://youtu.be/KEn8oklzyvo?si=zydZjIwoTzTd-bsO)
+
+FB-BEV and FB-OCC are a family of vision-centric 3D object detection and occupancy prediction methods based on forward-backward view transformation.
+
+## News
+- `[2023/8/01]` FB-BEV was accepted to ICCV 2023.
+- 🏆 `[2023/6/16]` FB-OCC wins both Outstanding Champion and Innovation Award  in [Autonomous Driving Challenge](https://opendrivelab.com/AD23Challenge.html#Track3) in conjunction with CVPR 2023  End-to-End Autonomous Driving Workshop and  Vision-Centric Autonomous Driving Workshop.
+
+
+## Getting Started
+- [Installation](docs/install.md)
+- [Prepare Dataset](docs/prepare_datasets.md)
+- [Training, Eval, Visualization](docs/start.md)
+ 
+## Model Zoo
+
+| Backbone | Method | Lr Schd | IoU|  Config | Download |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| R50 | FB-OCC | 20ep | 39.1 |[config](occupancy_configs/fb_occ/fbocc-r50-cbgs_depth_16f_16x4_20e.py) |[model](https://github.com/zhiqi-li/storage/releases/download/v1.0/fbocc-r50-cbgs_depth_16f_16x4_20e.pth)|
+
+* More model weights will be released later.
+
+## License
+
+Copyright © 2022 - 2023, NVIDIA Corporation. All rights reserved.
+
+This work is made available under the Nvidia Source Code License-NC. Click [here](https://github.com/NVlabs/FB-BEV/blob/main/LICENSE) to view a copy of this license.
+
+The pre-trained models are shared under CC-BY-NC-SA-4.0. If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
+
+For business inquiries, please visit our website and submit the form: [NVIDIA Research Licensing](https://www.nvidia.com/en-us/research/inquiries/).
+
+## Citation
+If this work is helpful for your research, please consider citing:
+
+```
+@inproceedings{li2023fbbev,
+  title={{FB-BEV}: {BEV} Representation from Forward-Backward View Transformations},
+  author={Li, Zhiqi and Yu, Zhiding and Wang, Wenhai and Anandkumar, Anima and Lu, Tong and Alvarez, Jose M},
+  booktitle={IEEE/CVF International Conference on Computer Vision (ICCV)},
+  year={2023}
+}
+```
+
+```
+@article{li2023fbocc,
+  title={{FB-OCC}: {3D} Occupancy Prediction based on Forward-Backward View Transformation},
+  author={Li, Zhiqi and Yu, Zhiding and Austin, David and Fang, Mingsheng and Lan, Shiyi and Kautz, Jan and Alvarez, Jose M},
+  journal={arXiv:2307.01492},
+  year={2023}
+}
+```
+
+## Acknowledgement
+
+Many thanks to these excellent open source projects:
+
+- [BEVFormer](https://github.com/fundamentalvision/BEVFormer), [BEVDet](https://github.com/HuangJunJie2017/BEVDet), [Occ3D](https://github.com/Tsinghua-MARS-Lab/Occ3D), [OpenOccupancy](https://github.com/JeffWang987/OpenOccupancy), [SoloFusion](https://github.com/Divadi/SOLOFusion)

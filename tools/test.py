@@ -1,27 +1,38 @@
-# ---------------------------------------------
 # Copyright (c) OpenMMLab. All rights reserved.
-# ---------------------------------------------
-#  Modified by Xiaoyu Tian
-# ---------------------------------------------
 import argparse
-import mmcv
 import os
-import sys
-import torch
 import warnings
+
+import mmcv
+import torch
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
-from mmdet3d.datasets import build_dataset
-from projects.mmdet3d_plugin.datasets.builder import build_dataloader
+
+import mmdet
+from mmdet3d.apis import single_gpu_test
+from mmdet3d.datasets import build_dataloader, build_dataset
 from mmdet3d.models import build_model
-from mmdet.apis import set_random_seed
-from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test
+from mmdet.apis import multi_gpu_test, set_random_seed
+from mmdet3d.apis.test import custom_multi_gpu_test
 from mmdet.datasets import replace_ImageToTensor
-import time
 import os.path as osp
+import time
+if mmdet.__version__ > '2.23.0':
+    # If mmdet version > 2.23.0, setup_multi_processes would be imported and
+    # used from mmdet instead of mmdet3d.
+    from mmdet.utils import setup_multi_processes
+else:
+    from mmdet3d.utils import setup_multi_processes
+
+try:
+    # If mmdet version > 2.23.0, compat_cfg would be imported and
+    # used from mmdet instead of mmdet3d.
+    from mmdet.utils import compat_cfg
+except ImportError:
+    from mmdet3d.utils import compat_cfg
 
 
 def parse_args():
@@ -30,15 +41,25 @@ def parse_args():
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument('--out', help='output result file in pickle format')
-    parser.add_argument(
-        '--eval_fscore',
-        action='store_true',
-        help='Evaluate f score')
+    parser.add_argument('--draw-k', type=int, help='draw and save k samples')
+    parser.add_argument('--draw-dir', default='draw', help='directory where k drawing will be saved')
     parser.add_argument(
         '--fuse-conv-bn',
         action='store_true',
         help='Whether to fuse conv and bn, this will slightly increase'
         'the inference speed')
+    parser.add_argument(
+        '--gpu-ids',
+        type=int,
+        nargs='+',
+        help='(Deprecated, please use --gpu-id) ids of gpus to use '
+        '(only applicable to non-distributed training)')
+    parser.add_argument(
+        '--gpu-id',
+        type=int,
+        default=0,
+        help='id of gpu to use '
+        '(only applicable to non-distributed testing)')
     parser.add_argument(
         '--format-only',
         action='store_true',
@@ -51,6 +72,10 @@ def parse_args():
         nargs='+',
         help='evaluation metrics, which depends on the dataset, e.g., "bbox",'
         ' "segm", "proposal" for COCO, and "mAP", "recall" for PASCAL VOC')
+    parser.add_argument(
+        '--save',
+        action='store_true',
+        help='save occupancy_data')
     parser.add_argument('--show', action='store_true', help='show results')
     parser.add_argument(
         '--show-dir', help='directory where results will be saved')
@@ -58,6 +83,10 @@ def parse_args():
         '--gpu-collect',
         action='store_true',
         help='whether to use gpu to collect results.')
+    parser.add_argument(
+        '--no-aavt',
+        action='store_true',
+        help='Do not align after view transformer.')
     parser.add_argument(
         '--tmpdir',
         help='tmp directory used for collecting results from multiple '
@@ -112,15 +141,15 @@ def parse_args():
 
 def main():
     args = parse_args()
+
     # assert args.out or args.eval or args.format_only or args.show \
     #     or args.show_dir, \
     #     ('Please specify at least one operation (save/eval/format/show the '
     #      'results / save the results) with the argument "--out", "--eval"'
     #      ', "--format-only", "--show" or "--show-dir"')
 
-    if args.format_only:
-        args.eval = False
-        # raise ValueError('--eval and --format_only cannot be both specified')
+    if args.eval and args.format_only:
+        raise ValueError('--eval and --format_only cannot be both specified')
 
     if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
         raise ValueError('The output file must be a pkl file.')
@@ -128,57 +157,34 @@ def main():
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
-    # import modules from string list.
-    if cfg.get('custom_imports', None):
-        from mmcv.utils import import_modules_from_strings
-        import_modules_from_strings(**cfg['custom_imports'])
 
-    # import modules from plguin/xx, registry will be updated
-    if hasattr(cfg, 'plugin'):
-        if cfg.plugin:
-            import importlib
-            if hasattr(cfg, 'plugin_dir'):
-                plugin_dir = cfg.plugin_dir
-                _module_dir = os.path.dirname(plugin_dir)
-                _module_dir = _module_dir.split('/')
-                _module_path = _module_dir[0]
+    cfg = compat_cfg(cfg)
 
-                for m in _module_dir[1:]:
-                    _module_path = _module_path + '.' + m
-                print(_module_path)
-                plg_lib = importlib.import_module(_module_path)
-            else:
-                # import dir is the dirpath for the config file
-                _module_dir = os.path.dirname(args.config)
-                _module_dir = _module_dir.split('/')
-                _module_path = _module_dir[0]
-                for m in _module_dir[1:]:
-                    _module_path = _module_path + '.' + m
-                print(_module_path)
-                plg_lib = importlib.import_module(_module_path)
+    # set multi-process settings
+    setup_multi_processes(cfg)
 
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
+    
+    # each process may have different time
+    out_dir =  osp.join('test', args.config.split('/')[-1][:-3], time.ctime().replace(' ','_').replace(':','_'))[:-8]
+
+    if args.save:
+        cfg.model.occupancy_save_path = out_dir
+        mmcv.mkdir_or_exist(out_dir)
+        mmcv.mkdir_or_exist(os.path.join(out_dir, 'occupancy_pred'))
 
     cfg.model.pretrained = None
-    # in case the test dataset is concatenated
-    samples_per_gpu = 1
-    if isinstance(cfg.data.test, dict):
-        cfg.data.test.test_mode = True
-        samples_per_gpu = cfg.data.test.pop('samples_per_gpu', 1)
-        if samples_per_gpu > 1:
-            # Replace 'ImageToTensor' to 'DefaultFormatBundle'
-            cfg.data.test.pipeline = replace_ImageToTensor(
-                cfg.data.test.pipeline)
-    elif isinstance(cfg.data.test, list):
-        for ds_cfg in cfg.data.test:
-            ds_cfg.test_mode = True
-        samples_per_gpu = max(
-            [ds_cfg.pop('samples_per_gpu', 1) for ds_cfg in cfg.data.test])
-        if samples_per_gpu > 1:
-            for ds_cfg in cfg.data.test:
-                ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
+
+    if args.gpu_ids is not None:
+        cfg.gpu_ids = args.gpu_ids[0:1]
+        warnings.warn('`--gpu-ids` is deprecated, please use `--gpu-id`. '
+                      'Because we only support single GPU mode in '
+                      'non-distributed testing. Use the first GPU '
+                      'in `gpu_ids` now.')
+    else:
+        cfg.gpu_ids = [args.gpu_id]
 
     # init distributed env first, since logger depends on the dist info.
     if args.launcher == 'none':
@@ -187,34 +193,62 @@ def main():
         distributed = True
         init_dist(args.launcher, **cfg.dist_params)
 
+
+    test_dataloader_default_args = dict(
+        samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
+
+    # in case the test dataset is concatenated
+    if isinstance(cfg.data.test, dict):
+        cfg.data.test.test_mode = True
+        if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
+            # Replace 'ImageToTensor' to 'DefaultFormatBundle'
+            cfg.data.test.pipeline = replace_ImageToTensor(
+                cfg.data.test.pipeline)
+    elif isinstance(cfg.data.test, list):
+        for ds_cfg in cfg.data.test:
+            ds_cfg.test_mode = True
+        if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
+            for ds_cfg in cfg.data.test:
+                ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
+
+    test_loader_cfg = { # TODO dataloader에서 idx를 어떻게 생성하는지 확인.
+        **test_dataloader_default_args,
+        **cfg.data.get('test_dataloader', {})
+    }
+
     # set random seeds
     if args.seed is not None:
         set_random_seed(args.seed, deterministic=args.deterministic)
 
     # build the dataloader
+
     dataset = build_dataset(cfg.data.test)
-    if args.eval_fscore:
-        dataset.eval_fscore=True
-    data_loader = build_dataloader(
-        dataset,
-        samples_per_gpu=samples_per_gpu,
-        workers_per_gpu=cfg.data.workers_per_gpu,
-        dist=distributed,
-        shuffle=False,
-        nonshuffler_sampler=cfg.data.nonshuffler_sampler,
-    )
+    
+    
+    
+    data_loader = build_dataloader(dataset, **test_loader_cfg)
 
     # build the model and load checkpoint
+    if not args.no_aavt:
+        if '4D' in cfg.model.type:
+            cfg.model.align_after_view_transfromation=True
     cfg.model.train_cfg = None
     model = build_model(cfg.model, test_cfg=cfg.get('test_cfg'))
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
-    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu', revise_keys=[(r'^module\.', ''), (r'^teacher\.', '')])
     if args.fuse_conv_bn:
         model = fuse_conv_bn(model)
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
+
+
+    sync_bn = cfg.get('sync_bn', False)
+    if distributed and sync_bn:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        print('Convert to SyncBatchNorm')
+
     if 'CLASSES' in checkpoint.get('meta', {}):
         model.CLASSES = checkpoint['meta']['CLASSES']
     else:
@@ -227,40 +261,49 @@ def main():
         model.PALETTE = dataset.PALETTE
 
     if not distributed:
-        assert False
-        # model = MMDataParallel(model, device_ids=[0])
-        # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
+        model = MMDataParallel(model, device_ids=cfg.gpu_ids)
+        outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
     else:
         model = MMDistributedDataParallel(
             model.cuda(),
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False)
-        outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
-                                        args.gpu_collect)
+        
+
+        if cfg.get('use_custom_gpu_test', True):
+            outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
+                                 args.gpu_collect)
+        else:
+            outputs = multi_gpu_test(model, data_loader, args.tmpdir,
+                             args.gpu_collect)              
 
     rank, _ = get_dist_info()
+
+    
     if rank == 0:
         if args.out:
             print(f'\nwriting results to {args.out}')
-            assert False
-            #mmcv.dump(outputs['bbox_results'], args.out)
+            mmcv.dump(outputs, args.out)
         kwargs = {} if args.eval_options is None else args.eval_options
-        kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-            '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
+        kwargs['jsonfile_prefix'] = out_dir
+        if args.draw_k:
+            from tools.analysis_tools.draw_occupancy import draw_save_occupancy
+            data_infos = dataset.data_infos
+            ckpt_name = args.checkpoint.split('/')[1]
+            draw_save_occupancy(outputs, data_infos, args.draw_k, args.draw_dir, ckpt_name)
         if args.format_only:
             dataset.format_results(outputs, **kwargs)
-
-        if args.eval:
+        if True:
             eval_kwargs = cfg.get('evaluation', {}).copy()
+            # kwargs['save'] =  args.save
             # hard-code way to remove EvalHook args
             for key in [
                     'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-                    'rule','begin','end'
+                    'rule'
             ]:
                 eval_kwargs.pop(key, None)
             eval_kwargs.update(dict(metric=args.eval, **kwargs))
-
-            dataset.evaluate_miou(outputs,show_dir=args.show_dir, **eval_kwargs)
+            print(dataset.evaluate(outputs, **eval_kwargs))
 
 
 if __name__ == '__main__':
