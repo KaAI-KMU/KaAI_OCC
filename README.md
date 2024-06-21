@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Forward-Backward View Transformation for Vision-Centric AV Perception
 
 <p align="center">
@@ -62,3 +63,7 @@ If this work is helpful for your research, please consider citing:
 Many thanks to these excellent open source projects:
 
 - [BEVFormer](https://github.com/fundamentalvision/BEVFormer), [BEVDet](https://github.com/HuangJunJie2017/BEVDet), [Occ3D](https://github.com/Tsinghua-MARS-Lab/Occ3D), [OpenOccupancy](https://github.com/JeffWang987/OpenOccupancy), [SoloFusion](https://github.com/Divadi/SOLOFusion)
+=======
+# KaAI_OCC
+2024 KaAI Occupancy and Flow Prediction
+>>>>>>> 5988fbc135aecac25a4ef7c752d772b11d071c1a
