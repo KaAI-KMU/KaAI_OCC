@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -27,31 +26,6 @@ x64
 .vs
 
 # Byte-compiled / optimized / DLL files
-*__pycache__*
-*.py[cod]
-*$py.class
-
-# Distribution / packaging
-.Python
-build
-develop-eggs
-dist
-downloads
-
-# IDE
-.idea
-.vscode
-pyrightconfig.json
-
-# Custom
-data
-ckpts
-work_dirs
-occ_submission
-*.npz
-*.gz
-=======
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -64,12 +38,6 @@ __pycache__/
 build/
 ckpts/
 data/
-ckpts
-data
-draw
-test/
-val/
-work_dirs/
 develop-eggs/
 dist/
 downloads/
@@ -88,9 +56,26 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# IDE
+.idea
+.vscode
+pyrightconfig.json
+
+# Custom
+data
+ckpts
+work_dirs
+occ_submission
+*.npz
+*.gz
+
+# Excluded folders
+draw/
+test/
+val/
+work_dirs/
+
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -145,23 +130,6 @@ ipython_config.py
 # pyenv
 .python-version
 
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
 # Environments
 .env
 .venv
@@ -188,4 +156,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
->>>>>>> 5988fbc135aecac25a4ef7c752d772b11d071c1a
