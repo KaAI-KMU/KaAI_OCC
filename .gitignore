@@ -74,6 +74,7 @@ draw/
 test/
 val/
 work_dirs/
+test/
 
 # PyInstaller
 *.manifest
